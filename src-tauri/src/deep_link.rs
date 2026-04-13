@@ -29,12 +29,18 @@ pub fn register(app: &AppHandle, state: Arc<AppState>) -> tauri::Result<()> {
     Ok(())
 }
 
-fn handle_url(url: &Url, state: Arc<AppState>) -> Result<()> {
+pub fn handle_url(url: &Url, state: Arc<AppState>) -> Result<()> {
     let (nonce, origin) = parse_import_session(url)?;
 
     state.arm_session(nonce, origin)?;
 
     Ok(())
+}
+
+pub fn handle_url_str(raw_url: &str, state: Arc<AppState>) -> Result<()> {
+    let url = Url::parse(raw_url)?;
+
+    handle_url(&url, state)
 }
 
 fn parse_import_session(url: &Url) -> Result<(String, String)> {

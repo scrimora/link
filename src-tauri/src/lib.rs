@@ -29,7 +29,15 @@ pub fn run() {
 
     #[cfg(desktop)]
     {
-        builder = builder.plugin(tauri_plugin_single_instance::init(|_, _, _| {}));
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _| {
+            let state = app.state::<std::sync::Arc<AppState>>().inner().clone();
+
+            for argument in argv {
+                if argument.starts_with("scrimora-link://") {
+                    let _ = deep_link::handle_url_str(&argument, state.clone());
+                }
+            }
+        }));
     }
 
     if let Some(public_key) = updater_public_key.as_deref() {
