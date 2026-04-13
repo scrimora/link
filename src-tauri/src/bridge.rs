@@ -17,6 +17,7 @@ use crate::lcu::LcuClient;
 use crate::messages::{ClientMessage, ServerMessage};
 
 const PORT_RANGE: [u16; 5] = [36130, 36131, 36132, 36133, 36134];
+const SCRIMORA_LINK_WS_PROTOCOL: &str = "scrimora-link.v1";
 
 pub fn spawn(state: Arc<AppState>) -> Result<()> {
     let listener = PORT_RANGE
@@ -59,7 +60,8 @@ async fn websocket_handler(
         .and_then(|value| value.to_str().ok())
         .map(str::to_string);
 
-    ws.on_upgrade(move |socket| handle_socket(socket, origin, state))
+    ws.protocols([SCRIMORA_LINK_WS_PROTOCOL])
+        .on_upgrade(move |socket| handle_socket(socket, origin, state))
 }
 
 async fn handle_socket(mut socket: WebSocket, header_origin: Option<String>, state: Arc<AppState>) {
