@@ -18,6 +18,7 @@ pub fn run() {
     let state = AppState::new();
 
     let mut builder = tauri::Builder::default();
+    let updater_public_key = bundled_updater_public_key().map(str::to_string);
 
     #[cfg(desktop)]
     {
@@ -26,14 +27,16 @@ pub fn run() {
         }));
     }
 
-    let mut updater = tauri_plugin_updater::Builder::new();
-    if let Some(public_key) = bundled_updater_public_key() {
-        updater = updater.pubkey(public_key);
+    if let Some(public_key) = updater_public_key.as_deref() {
+        builder = builder.plugin(
+            tauri_plugin_updater::Builder::new()
+                .pubkey(public_key)
+                .build(),
+        );
     }
 
     builder
         .plugin(tauri_plugin_deep_link::init())
-        .plugin(updater.build())
         .setup(move |app| {
             let state = state.clone();
             app.manage(state.clone());
@@ -42,10 +45,12 @@ pub fn run() {
             deep_link::register(&app.handle().clone(), state)?;
             setup_tray(app)?;
 
-            let handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                let _ = check_for_updates(handle).await;
-            });
+            if updater_public_key.is_some() {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    let _ = check_for_updates(handle).await;
+                });
+            }
 
             Ok(())
         })

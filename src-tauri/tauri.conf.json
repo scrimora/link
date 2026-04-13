@@ -40,6 +40,12 @@
           "scrimora-link"
         ]
       }
+    },
+    "updater": {
+      "pubkey": "placeholder-public-key",
+      "endpoints": [
+        "https://github.com/scrimora/link/releases/latest/download/latest.json"
+      ]
     }
   }
 }
