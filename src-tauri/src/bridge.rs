@@ -28,7 +28,6 @@ pub fn spawn(state: Arc<AppState>) -> Result<()> {
         .set_nonblocking(true)
         .context("failed to mark the loopback listener as nonblocking")?;
 
-    let listener = TcpListener::from_std(listener)?;
     state.set_bridge_port(listener.local_addr()?.port());
 
     let app = Router::new()
@@ -36,6 +35,14 @@ pub fn spawn(state: Arc<AppState>) -> Result<()> {
         .with_state(state);
 
     tauri::async_runtime::spawn(async move {
+        let listener = match TcpListener::from_std(listener) {
+            Ok(listener) => listener,
+            Err(error) => {
+                eprintln!("failed to attach the local bridge listener to Tokio: {error}");
+                return;
+            }
+        };
+
         let _ = axum::serve(listener, app).await;
     });
 
