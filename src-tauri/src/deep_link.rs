@@ -30,6 +30,14 @@ pub fn register(app: &AppHandle, state: Arc<AppState>) -> tauri::Result<()> {
 }
 
 fn handle_url(url: &Url, state: Arc<AppState>) -> Result<()> {
+    let (nonce, origin) = parse_import_session(url)?;
+
+    state.arm_session(nonce, origin)?;
+
+    Ok(())
+}
+
+fn parse_import_session(url: &Url) -> Result<(String, String)> {
     let nonce = url
         .query_pairs()
         .find_map(|(key, value)| (key == "nonce").then(|| value.to_string()))
@@ -39,7 +47,25 @@ fn handle_url(url: &Url, state: Arc<AppState>) -> Result<()> {
         .find_map(|(key, value)| (key == "origin").then(|| value.to_string()))
         .ok_or_else(|| anyhow::anyhow!("The deep link did not include an origin."))?;
 
-    state.arm_session(nonce, origin)?;
+    Ok((nonce, origin))
+}
 
-    Ok(())
+#[cfg(test)]
+mod tests {
+    use url::Url;
+
+    use super::parse_import_session;
+
+    #[test]
+    fn parses_nonce_and_origin_from_import_links() {
+        let url = Url::parse(
+            "scrimora-link://import?nonce=session-123&origin=https%3A%2F%2Fdev.scrimora.app",
+        )
+        .expect("deep link to parse");
+
+        let (nonce, origin) = parse_import_session(&url).expect("session parameters to parse");
+
+        assert_eq!(nonce, "session-123");
+        assert_eq!(origin, "https://dev.scrimora.app");
+    }
 }

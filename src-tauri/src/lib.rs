@@ -6,7 +6,7 @@ mod lockfile;
 mod messages;
 
 use tauri::menu::{Menu, MenuItem};
-use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_updater::UpdaterExt;
 use url::Url;
@@ -22,9 +22,7 @@ pub fn run() {
 
     #[cfg(desktop)]
     {
-        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| {
-            let _ = show_main_window(app);
-        }));
+        builder = builder.plugin(tauri_plugin_single_instance::init(|_, _, _| {}));
     }
 
     if let Some(public_key) = updater_public_key.as_deref() {
@@ -78,45 +76,17 @@ async fn check_for_updates(app: AppHandle) -> tauri_plugin_updater::Result<()> {
 }
 
 fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
-    let show = MenuItem::with_id(app, "show", "Open Scrimora Link", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show, &quit])?;
-    let handle = app.handle().clone();
+    let menu = Menu::with_items(app, &[&quit])?;
 
     TrayIconBuilder::with_id("scrimora-link")
         .menu(&menu)
-        .on_menu_event(
-            move |app: &tauri::AppHandle, event| match event.id.as_ref() {
-                "show" => {
-                    let _ = show_main_window(app);
-                }
-                "quit" => app.exit(0),
-                _ => {}
-            },
-        )
-        .on_tray_icon_event(move |tray: &tauri::tray::TrayIcon, event| {
-            if matches!(
-                event,
-                TrayIconEvent::Click {
-                    button: MouseButton::Left,
-                    button_state: MouseButtonState::Up,
-                    ..
-                }
-            ) {
-                let _ = show_main_window(&handle);
-                let _ = tray.set_tooltip(Some("Scrimora Link"));
+        .on_menu_event(move |app: &tauri::AppHandle, event| {
+            if event.id.as_ref() == "quit" {
+                app.exit(0);
             }
         })
         .build(app)?;
-
-    Ok(())
-}
-
-fn show_main_window<R: tauri::Runtime>(app: &impl Manager<R>) -> tauri::Result<()> {
-    if let Some(window) = app.get_webview_window("main") {
-        window.show()?;
-        window.set_focus()?;
-    }
 
     Ok(())
 }
