@@ -91,9 +91,9 @@ jobs:
         shell: bash
         run: |
           if [ -n "${{ matrix.args }}" ]; then
-            bun run tauri build -- --config src-tauri/tauri.ci.conf.json ${{ matrix.args }}
+            bunx tauri build --ci --no-sign --config src-tauri/tauri.ci.conf.json ${{ matrix.args }}
           else
-            bun run tauri build -- --config src-tauri/tauri.ci.conf.json
+            bunx tauri build --ci --no-sign --config src-tauri/tauri.ci.conf.json
           fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
