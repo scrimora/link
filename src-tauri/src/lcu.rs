@@ -7,6 +7,7 @@ use chrono::{DateTime, Utc};
 use reqwest::Client;
 use serde_json::Value;
 
+use crate::app_state::LcuConnectionStatus;
 use crate::lockfile::{LockfileCredentials, discover_lockfile};
 use crate::messages::{RecentGameSummary, SourceContext};
 
@@ -122,6 +123,17 @@ impl LcuClient {
         let response = response.error_for_status()?;
 
         Ok(response.json().await?)
+    }
+}
+
+pub async fn detect_connection_status() -> LcuConnectionStatus {
+    let Ok(client) = LcuClient::discover() else {
+        return LcuConnectionStatus::Disconnected;
+    };
+
+    match client.current_summoner().await {
+        Ok(_) => LcuConnectionStatus::Connected,
+        Err(_) => LcuConnectionStatus::Connecting,
     }
 }
 

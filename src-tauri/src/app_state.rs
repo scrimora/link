@@ -4,6 +4,23 @@ use std::time::{Duration, Instant};
 use anyhow::{Result, anyhow};
 use url::Url;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LcuConnectionStatus {
+    Connecting,
+    Connected,
+    Disconnected,
+}
+
+impl LcuConnectionStatus {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Connecting => "Connecting",
+            Self::Connected => "Connected",
+            Self::Disconnected => "Disconnected",
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct PendingSession {
     pub nonce: String,
@@ -16,6 +33,7 @@ pub struct AppState {
     allowed_origins: Vec<String>,
     pending_session: RwLock<Option<PendingSession>>,
     bridge_port: RwLock<Option<u16>>,
+    lcu_status: RwLock<LcuConnectionStatus>,
 }
 
 impl AppState {
@@ -24,6 +42,7 @@ impl AppState {
             allowed_origins: default_allowed_origins(),
             pending_session: RwLock::new(None),
             bridge_port: RwLock::new(None),
+            lcu_status: RwLock::new(LcuConnectionStatus::Connecting),
         })
     }
 
@@ -107,6 +126,14 @@ impl AppState {
         *self.bridge_port.read().expect("bridge port lock poisoned")
     }
 
+    pub fn set_lcu_status(&self, status: LcuConnectionStatus) {
+        *self.lcu_status.write().expect("lcu status lock poisoned") = status;
+    }
+
+    pub fn lcu_status(&self) -> LcuConnectionStatus {
+        *self.lcu_status.read().expect("lcu status lock poisoned")
+    }
+
     fn is_allowed_origin(&self, origin: &str) -> bool {
         self.allowed_origins.iter().any(|allowed| allowed == origin)
     }
@@ -168,7 +195,7 @@ fn normalize_origin(origin: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{AppState, normalize_origin};
+    use super::{AppState, LcuConnectionStatus, normalize_origin};
 
     #[test]
     fn verifies_the_active_paired_session() {
@@ -223,5 +250,14 @@ mod tests {
         let normalized = normalize_origin("scrimora-link://import");
 
         assert!(normalized.is_none());
+    }
+
+    #[test]
+    fn stores_the_current_lcu_status() {
+        let state = AppState::new();
+
+        state.set_lcu_status(LcuConnectionStatus::Connected);
+
+        assert_eq!(state.lcu_status(), LcuConnectionStatus::Connected);
     }
 }
