@@ -9,7 +9,9 @@ use crate::app_state::AppState;
 
 pub fn register(app: &AppHandle, state: Arc<AppState>) -> tauri::Result<()> {
     #[cfg(windows)]
-    app.deep_link().register_all()?;
+    app.deep_link()
+        .register_all()
+        .map_err(anyhow::Error::from)?;
 
     if let Some(urls) = app.deep_link().get_current().map_err(anyhow::Error::from)? {
         for url in urls {
