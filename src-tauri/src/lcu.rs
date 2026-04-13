@@ -1,3 +1,6 @@
+use std::collections::HashSet;
+use std::time::Duration;
+
 use anyhow::{Result, anyhow};
 use base64::Engine;
 use chrono::{DateTime, Utc};
@@ -6,6 +9,10 @@ use serde_json::Value;
 
 use crate::lockfile::{LockfileCredentials, discover_lockfile};
 use crate::messages::{RecentGameSummary, SourceContext};
+
+const LCU_CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
+const LCU_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+const RECENT_CUSTOM_GAME_LIMIT: usize = 20;
 
 pub struct LcuClient {
     credentials: LockfileCredentials,
@@ -22,7 +29,10 @@ impl LcuClient {
     pub fn discover() -> Result<Self> {
         let credentials = discover_lockfile()?;
         let client = Client::builder()
+            .connect_timeout(LCU_CONNECT_TIMEOUT)
             .danger_accept_invalid_certs(true)
+            .timeout(LCU_REQUEST_TIMEOUT)
+            .user_agent(format!("Scrimora-Link/{}", env!("CARGO_PKG_VERSION")))
             .build()?;
 
         Ok(Self {
@@ -136,7 +146,8 @@ fn extract_recent_custom_games(
     history: &Value,
     observer_label: Option<String>,
 ) -> Vec<RecentGameSummary> {
-    history
+    let mut seen_game_ids = HashSet::new();
+    let mut summaries = history
         .pointer("/games/games")
         .and_then(Value::as_array)
         .or_else(|| history.get("games").and_then(Value::as_array))
@@ -144,7 +155,18 @@ fn extract_recent_custom_games(
         .flatten()
         .filter(|game| is_custom_game(game))
         .filter_map(|game| summarize_game(game, observer_label.clone()))
-        .collect()
+        .filter(|summary| seen_game_ids.insert(summary.game_id))
+        .collect::<Vec<_>>();
+
+    summaries.sort_by(|left, right| {
+        right
+            .played_at
+            .cmp(&left.played_at)
+            .then_with(|| right.game_id.cmp(&left.game_id))
+    });
+    summaries.truncate(RECENT_CUSTOM_GAME_LIMIT);
+
+    summaries
 }
 
 fn is_custom_game(game: &Value) -> bool {
@@ -256,5 +278,45 @@ mod tests {
         assert_eq!(summaries.len(), 1);
         assert_eq!(summaries[0].game_id, 101);
         assert_eq!(summaries[0].observer_label.as_deref(), Some("Coach#EUW"));
+    }
+
+    #[test]
+    fn sorts_and_deduplicates_recent_custom_games() {
+        let history = json!({
+            "games": {
+                "games": [
+                    {
+                        "gameId": 101,
+                        "queueId": 0,
+                        "gameCreation": 1_710_000_000_000_i64,
+                        "gameDuration": 1800,
+                        "gameType": "CUSTOM_GAME",
+                        "participants": [{ "riotIdGameName": "TopMain" }]
+                    },
+                    {
+                        "gameId": 202,
+                        "queueId": 0,
+                        "gameCreation": 1_720_000_000_000_i64,
+                        "gameDuration": 1800,
+                        "gameType": "CUSTOM_GAME",
+                        "participants": [{ "riotIdGameName": "MidMain" }]
+                    },
+                    {
+                        "gameId": 202,
+                        "queueId": 0,
+                        "gameCreation": 1_720_000_000_000_i64,
+                        "gameDuration": 1800,
+                        "gameType": "CUSTOM_GAME",
+                        "participants": [{ "riotIdGameName": "MidMain" }]
+                    }
+                ]
+            }
+        });
+
+        let summaries = extract_recent_custom_games(&history, None);
+
+        assert_eq!(summaries.len(), 2);
+        assert_eq!(summaries[0].game_id, 202);
+        assert_eq!(summaries[1].game_id, 101);
     }
 }

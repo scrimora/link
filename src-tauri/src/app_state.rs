@@ -2,6 +2,7 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
 use anyhow::{Result, anyhow};
+use url::Url;
 
 #[derive(Clone, Debug)]
 pub struct PendingSession {
@@ -27,7 +28,10 @@ impl AppState {
     }
 
     pub fn arm_session(&self, nonce: String, origin: String) -> Result<()> {
-        if !self.is_allowed_origin(&origin) {
+        let normalized_origin = normalize_origin(&origin)
+            .ok_or_else(|| anyhow!("Origin [{origin}] is not a valid HTTP(S) origin."))?;
+
+        if !self.is_allowed_origin(&normalized_origin) {
             return Err(anyhow!("Origin [{origin}] is not allowed."));
         }
 
@@ -36,7 +40,7 @@ impl AppState {
             .write()
             .expect("pending session lock poisoned") = Some(PendingSession {
             nonce,
-            origin,
+            origin: normalized_origin,
             expires_at: Instant::now() + Duration::from_secs(300),
         });
 
@@ -56,6 +60,11 @@ impl AppState {
         let session = pending_session
             .as_ref()
             .ok_or_else(|| anyhow!("No active import session is registered."))?;
+        let normalized_claimed_origin = normalize_origin(claimed_origin)
+            .ok_or_else(|| anyhow!("The claimed origin is not a valid HTTP(S) origin."))?;
+        let normalized_header_origin = header_origin
+            .and_then(normalize_origin)
+            .ok_or_else(|| anyhow!("The websocket Origin header was missing or invalid."))?;
 
         if Instant::now() > session.expires_at {
             return Err(anyhow!(
@@ -69,13 +78,13 @@ impl AppState {
             ));
         }
 
-        if session.origin != claimed_origin {
+        if session.origin != normalized_claimed_origin {
             return Err(anyhow!(
                 "The claimed origin does not match the deep-link origin."
             ));
         }
 
-        if header_origin != Some(session.origin.as_str()) {
+        if normalized_header_origin != session.origin {
             return Err(anyhow!(
                 "The websocket Origin header did not match the paired site."
             ));
@@ -125,15 +134,41 @@ fn default_allowed_origins() -> Vec<String> {
         );
     }
 
+    origins = origins
+        .into_iter()
+        .filter_map(|origin| normalize_origin(&origin))
+        .collect();
+
     origins.sort();
     origins.dedup();
 
     origins
 }
 
+fn normalize_origin(origin: &str) -> Option<String> {
+    let url = Url::parse(origin).ok()?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return None;
+    }
+
+    if !url.username().is_empty() || url.password().is_some() {
+        return None;
+    }
+
+    let host = url.host_str()?;
+    let mut normalized = format!("{}://{}", url.scheme(), host);
+
+    if let Some(port) = url.port() {
+        normalized.push(':');
+        normalized.push_str(&port.to_string());
+    }
+
+    Some(normalized)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::AppState;
+    use super::{AppState, normalize_origin};
 
     #[test]
     fn verifies_the_active_paired_session() {
@@ -173,5 +208,20 @@ mod tests {
         );
 
         assert!(second_attempt.is_err());
+    }
+
+    #[test]
+    fn normalizes_allowed_origins() {
+        let normalized =
+            normalize_origin("https://dev.scrimora.app/").expect("origin to normalize");
+
+        assert_eq!(normalized, "https://dev.scrimora.app");
+    }
+
+    #[test]
+    fn rejects_non_http_origins() {
+        let normalized = normalize_origin("scrimora-link://import");
+
+        assert!(normalized.is_none());
     }
 }
