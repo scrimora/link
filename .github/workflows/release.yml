@@ -41,7 +41,7 @@ jobs:
         run: |
           app_version="$(bun -e "console.log(require('./src-tauri/tauri.conf.json').version)")"
           package_version="$(bun -e "console.log(require('./package.json').version)")"
-          cargo_version="$(sed -n 's/^version = \"\\(.*\\)\"/\\1/p' src-tauri/Cargo.toml | head -n 1)"
+          cargo_version="$(awk -F '"' '/^version =/ { print $2; exit }' src-tauri/Cargo.toml)"
 
           if [ "$app_version" != "$package_version" ] || [ "$app_version" != "$cargo_version" ]; then
             echo "Version mismatch: tauri.conf.json=$app_version package.json=$package_version Cargo.toml=$cargo_version"
