@@ -36,6 +36,43 @@ jobs:
       - name: Install frontend dependencies
         run: bun install --frozen-lockfile
 
+      - name: Verify release version
+        shell: bash
+        run: |
+          app_version="$(bun -e "console.log(require('./src-tauri/tauri.conf.json').version)")"
+          package_version="$(bun -e "console.log(require('./package.json').version)")"
+          cargo_version="$(sed -n 's/^version = \"\\(.*\\)\"/\\1/p' src-tauri/Cargo.toml | head -n 1)"
+
+          if [ "$app_version" != "$package_version" ] || [ "$app_version" != "$cargo_version" ]; then
+            echo "Version mismatch: tauri.conf.json=$app_version package.json=$package_version Cargo.toml=$cargo_version"
+            exit 1
+          fi
+
+          if [ "${GITHUB_REF_TYPE}" = "tag" ] && [ "${GITHUB_REF_NAME}" != "v${app_version}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match app version v${app_version}"
+            exit 1
+          fi
+
+      - name: Verify release secrets
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
+        run: |
+          missing=0
+
+          for name in TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD TAURI_UPDATER_PUBLIC_KEY; do
+            if [ -z "${!name}" ]; then
+              echo "Missing required GitHub secret: ${name}"
+              missing=1
+            fi
+          done
+
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
       - name: Rust fmt
         run: cargo fmt --check
         working-directory: src-tauri
@@ -91,7 +128,10 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: Scrimora Link v__VERSION__
-          releaseBody: Scrimora Link desktop companion release.
+          releaseBody: |
+            Scrimora Link desktop companion release.
+
+            Download the Windows or macOS installer from the assets below. The `latest.json` asset is used by the in-app updater.
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
