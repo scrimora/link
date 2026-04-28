@@ -42,7 +42,7 @@
       }
     },
     "updater": {
-      "pubkey": "placeholder-public-key",
+      "pubkey": "RWQa4/DYsXW1AlaP9AQ9MZA34w5W4v5J3kn4twjnsJlaH4OpNHOkMLSD",
       "endpoints": [
         "https://github.com/scrimora/link/releases/latest/download/latest.json"
       ]

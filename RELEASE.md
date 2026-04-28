@@ -12,8 +12,8 @@ Tauri updater and produce the `latest.json` manifest consumed by installed apps.
    - `TAURI_SIGNING_PRIVATE_KEY`
    - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
    - `TAURI_UPDATER_PUBLIC_KEY`
-4. Keep the private updater key secret. Only the public key belongs in build
-   configuration or release environments.
+4. Keep the private updater key secret. The public key is safe to commit and
+   must match both `src-tauri/tauri.conf.json` and `TAURI_UPDATER_PUBLIC_KEY`.
 
 ## Optional OS signing
 
@@ -54,7 +54,8 @@ credentials, but users may see operating system trust warnings.
 
 ## Auto-update Notes
 
-The app compiles the updater public key from
-`SCRIMORA_LINK_UPDATER_PUBLIC_KEY` and derives its update endpoint from
+The Tauri CLI reads the updater public key from `src-tauri/tauri.conf.json` when
+it creates updater artifacts. The runtime updater also compiles the same public
+key from `SCRIMORA_LINK_UPDATER_PUBLIC_KEY` and derives its update endpoint from
 `SCRIMORA_LINK_GITHUB_REPOSITORY` in CI. Release builds set both values in the
 workflow, so installed apps check GitHub Releases for the newest stable release.
