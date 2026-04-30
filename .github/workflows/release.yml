@@ -59,10 +59,11 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
+          SCRIMORA_LINK_UMAMI_WEBSITE_ID: ${{ secrets.SCRIMORA_LINK_UMAMI_WEBSITE_ID }}
         run: |
           missing=0
 
-          for name in TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD TAURI_UPDATER_PUBLIC_KEY; do
+          for name in TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD TAURI_UPDATER_PUBLIC_KEY SCRIMORA_LINK_UMAMI_WEBSITE_ID; do
             if [ -z "${!name}" ]; then
               echo "Missing required GitHub secret: ${name}"
               missing=1
@@ -125,6 +126,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           SCRIMORA_LINK_GITHUB_REPOSITORY: ${{ github.repository }}
           SCRIMORA_LINK_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
+          SCRIMORA_LINK_UMAMI_ENDPOINT: https://analytics.scrimora.app
+          SCRIMORA_LINK_UMAMI_WEBSITE_ID: ${{ secrets.SCRIMORA_LINK_UMAMI_WEBSITE_ID }}
         with:
           tagName: v__VERSION__
           releaseName: Scrimora Link v__VERSION__

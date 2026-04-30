@@ -4,6 +4,7 @@ mod deep_link;
 mod lcu;
 mod lockfile;
 mod messages;
+mod telemetry;
 
 use std::process::Command;
 use std::time::Duration;
@@ -16,6 +17,7 @@ use tokio::time::sleep;
 use url::Url;
 
 use crate::app_state::{AppState, LcuConnectionStatus};
+use crate::telemetry::Telemetry;
 
 const SCRIMORA_WEBSITE_URL: &str = "https://scrimora.app";
 const LCU_STATUS_POLL_INTERVAL: Duration = Duration::from_secs(5);
@@ -23,6 +25,7 @@ const LCU_STATUS_POLL_INTERVAL: Duration = Duration::from_secs(5);
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let state = AppState::new();
+    let telemetry = Telemetry::from_env();
 
     let mut builder = tauri::Builder::default();
     let updater_public_key = bundled_updater_public_key().map(str::to_string);
@@ -52,13 +55,18 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .setup(move |app| {
             let state = state.clone();
+            let telemetry = telemetry.clone();
             app.manage(state.clone());
 
-            bridge::spawn(state.clone())?;
+            if let Some(telemetry) = telemetry.as_deref() {
+                telemetry.track("app_started");
+            }
+
+            bridge::spawn(state.clone(), telemetry.clone())?;
             deep_link::register(&app.handle().clone(), state.clone())?;
             let status_item = setup_tray(app)?;
             update_tray_status_item(&status_item, state.lcu_status())?;
-            spawn_lcu_status_monitor(state.clone(), status_item.clone());
+            spawn_lcu_status_monitor(state.clone(), status_item.clone(), telemetry.clone());
 
             if updater_public_key.is_some() {
                 let handle = app.handle().clone();
@@ -115,12 +123,34 @@ fn setup_tray(app: &mut tauri::App<Wry>) -> tauri::Result<MenuItem<Wry>> {
     Ok(status)
 }
 
-fn spawn_lcu_status_monitor<R: Runtime>(state: std::sync::Arc<AppState>, status_item: MenuItem<R>) {
+fn spawn_lcu_status_monitor<R: Runtime>(
+    state: std::sync::Arc<AppState>,
+    status_item: MenuItem<R>,
+    telemetry: Option<std::sync::Arc<Telemetry>>,
+) {
     tauri::async_runtime::spawn(async move {
         loop {
+            let previous_status = state.lcu_status();
             let status = lcu::detect_connection_status().await;
             state.set_lcu_status(status);
             let _ = update_tray_status_item(&status_item, status);
+
+            if previous_status != status {
+                match status {
+                    LcuConnectionStatus::Connected => {
+                        if let Some(telemetry) = telemetry.as_deref() {
+                            telemetry.track("lcu_connected");
+                        }
+                    }
+                    LcuConnectionStatus::Disconnected => {
+                        if let Some(telemetry) = telemetry.as_deref() {
+                            telemetry.track("lcu_disconnected");
+                        }
+                    }
+                    LcuConnectionStatus::Connecting => {}
+                }
+            }
+
             sleep(LCU_STATUS_POLL_INTERVAL).await;
         }
     });

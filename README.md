@@ -21,6 +21,17 @@ Install the asset for your platform:
 Release builds check GitHub Releases for updates. The Tauri updater uses the
 `latest.json` release asset and verifies update signatures before installing.
 
+## Telemetry
+
+Release builds can send privacy-conscious operational telemetry to Umami at
+`https://analytics.scrimora.app`. Telemetry is enabled by default when the build
+includes `SCRIMORA_LINK_UMAMI_WEBSITE_ID`; set
+`SCRIMORA_LINK_TELEMETRY_DISABLED=1` to disable it for local or diagnostic
+builds.
+
+Telemetry events do not include summoner names, PUUIDs, match IDs, game IDs,
+participant names, raw LCU payloads, lockfile data, or websocket origins.
+
 ## Development
 
 Install dependencies:

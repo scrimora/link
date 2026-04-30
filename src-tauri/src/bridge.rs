@@ -10,16 +10,24 @@ use axum::http::HeaderMap;
 use axum::response::IntoResponse;
 use axum::routing::get;
 use futures_util::StreamExt;
+use serde_json::Value;
 use tokio::net::TcpListener;
 
 use crate::app_state::AppState;
 use crate::lcu::LcuClient;
 use crate::messages::{ClientMessage, ServerMessage};
+use crate::telemetry::Telemetry;
 
 const PORT_RANGE: [u16; 5] = [36130, 36131, 36132, 36133, 36134];
 const SCRIMORA_LINK_WS_PROTOCOL: &str = "scrimora-link.v1";
 
-pub fn spawn(state: Arc<AppState>) -> Result<()> {
+#[derive(Clone)]
+struct BridgeState {
+    state: Arc<AppState>,
+    telemetry: Option<Arc<Telemetry>>,
+}
+
+pub fn spawn(state: Arc<AppState>, telemetry: Option<Arc<Telemetry>>) -> Result<()> {
     let listener = PORT_RANGE
         .iter()
         .find_map(|port| std::net::TcpListener::bind(("127.0.0.1", *port)).ok())
@@ -30,10 +38,13 @@ pub fn spawn(state: Arc<AppState>) -> Result<()> {
         .context("failed to mark the loopback listener as nonblocking")?;
 
     state.set_bridge_port(listener.local_addr()?.port());
+    if let Some(telemetry) = telemetry.as_deref() {
+        telemetry.track("bridge_started");
+    }
 
     let app = Router::new()
         .route("/", get(websocket_handler))
-        .with_state(state);
+        .with_state(BridgeState { state, telemetry });
 
     tauri::async_runtime::spawn(async move {
         let listener = match TcpListener::from_std(listener) {
@@ -53,7 +64,7 @@ pub fn spawn(state: Arc<AppState>) -> Result<()> {
 async fn websocket_handler(
     ws: WebSocketUpgrade,
     headers: HeaderMap,
-    State(state): State<Arc<AppState>>,
+    State(state): State<BridgeState>,
 ) -> impl IntoResponse {
     let origin = headers
         .get("origin")
@@ -64,7 +75,7 @@ async fn websocket_handler(
         .on_upgrade(move |socket| handle_socket(socket, origin, state))
 }
 
-async fn handle_socket(mut socket: WebSocket, header_origin: Option<String>, state: Arc<AppState>) {
+async fn handle_socket(mut socket: WebSocket, header_origin: Option<String>, state: BridgeState) {
     let Some(Ok(Message::Text(first_message))) = socket.next().await else {
         return;
     };
@@ -83,7 +94,11 @@ async fn handle_socket(mut socket: WebSocket, header_origin: Option<String>, sta
         return;
     };
 
-    if let Err(error) = state.verify_session(&nonce, &origin, header_origin.as_deref()) {
+    if let Err(error) = state
+        .state
+        .verify_session(&nonce, &origin, header_origin.as_deref())
+    {
+        track_error(&state.telemetry, "pairing_failed", "unauthorized_origin");
         let _ = send_message(
             &mut socket,
             ServerMessage::Error {
@@ -95,11 +110,15 @@ async fn handle_socket(mut socket: WebSocket, header_origin: Option<String>, sta
         return;
     }
 
+    if let Some(telemetry) = state.telemetry.as_deref() {
+        telemetry.track("pairing_succeeded");
+    }
+
     let _ = send_message(
         &mut socket,
         ServerMessage::Ready {
             companion_version: env!("CARGO_PKG_VERSION").to_string(),
-            bridge_port: state.bridge_port().unwrap_or_default(),
+            bridge_port: state.state.bridge_port().unwrap_or_default(),
         },
     )
     .await;
@@ -115,11 +134,22 @@ async fn handle_socket(mut socket: WebSocket, header_origin: Option<String>, sta
             Ok(ClientMessage::GetRecentCustomGames) => match LcuClient::discover() {
                 Ok(client) => match client.recent_custom_games().await {
                     Ok(games) => {
+                        if let Some(telemetry) = state.telemetry.as_deref() {
+                            let mut data = serde_json::Map::new();
+                            data.insert("count".to_string(), Value::from(games.len()));
+                            telemetry.track_with_data("recent_games_succeeded", data);
+                        }
+
                         let _ =
                             send_message(&mut socket, ServerMessage::RecentCustomGames { games })
                                 .await;
                     }
                     Err(error) => {
+                        track_error(
+                            &state.telemetry,
+                            "recent_games_failed",
+                            "lcu_request_failed",
+                        );
                         let _ = send_message(
                             &mut socket,
                             ServerMessage::Error {
@@ -131,6 +161,11 @@ async fn handle_socket(mut socket: WebSocket, header_origin: Option<String>, sta
                     }
                 },
                 Err(error) => {
+                    track_error(
+                        &state.telemetry,
+                        "recent_games_failed",
+                        "lcu_discovery_failed",
+                    );
                     let _ = send_message(
                         &mut socket,
                         ServerMessage::Error {
@@ -144,6 +179,10 @@ async fn handle_socket(mut socket: WebSocket, header_origin: Option<String>, sta
             Ok(ClientMessage::ImportGame { game_id }) => match LcuClient::discover() {
                 Ok(client) => match client.import_game(game_id).await {
                     Ok(bundle) => {
+                        if let Some(telemetry) = state.telemetry.as_deref() {
+                            telemetry.track("import_succeeded");
+                        }
+
                         let _ = send_message(
                             &mut socket,
                             ServerMessage::ImportPayload {
@@ -155,6 +194,7 @@ async fn handle_socket(mut socket: WebSocket, header_origin: Option<String>, sta
                         .await;
                     }
                     Err(error) => {
+                        track_error(&state.telemetry, "import_failed", "lcu_request_failed");
                         let _ = send_message(
                             &mut socket,
                             ServerMessage::Error {
@@ -166,6 +206,7 @@ async fn handle_socket(mut socket: WebSocket, header_origin: Option<String>, sta
                     }
                 },
                 Err(error) => {
+                    track_error(&state.telemetry, "import_failed", "lcu_discovery_failed");
                     let _ = send_message(
                         &mut socket,
                         ServerMessage::Error {
@@ -190,6 +231,14 @@ async fn handle_socket(mut socket: WebSocket, header_origin: Option<String>, sta
                 .await;
             }
         }
+    }
+}
+
+fn track_error(telemetry: &Option<Arc<Telemetry>>, event_name: &'static str, reason: &'static str) {
+    if let Some(telemetry) = telemetry.as_deref() {
+        let mut data = serde_json::Map::new();
+        data.insert("reason".to_string(), Value::String(reason.to_string()));
+        telemetry.track_with_data(event_name, data);
     }
 }
 

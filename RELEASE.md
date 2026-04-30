@@ -12,6 +12,7 @@ Tauri updater and produce the `latest.json` manifest consumed by installed apps.
    - `TAURI_SIGNING_PRIVATE_KEY`
    - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
    - `TAURI_UPDATER_PUBLIC_KEY`
+   - `SCRIMORA_LINK_UMAMI_WEBSITE_ID`
 4. Keep the private updater key secret. The public key is safe to commit, but
    paste the generated `.pub` file contents exactly as-is. Do not base64 encode
    it again. It must match both `src-tauri/tauri.conf.json` and
@@ -44,8 +45,8 @@ credentials, but users may see operating system trust warnings.
 3. Commit the version bump.
 4. Create and push the matching tag:
    ```sh
-   git tag v0.1.0
-   git push origin v0.1.0
+   git tag v0.1.1
+   git push origin v0.1.1
    ```
 5. Wait for the `release` workflow to complete.
 6. Confirm the GitHub Release contains:
@@ -61,3 +62,14 @@ it creates updater artifacts. The runtime updater also compiles the same public
 key from `SCRIMORA_LINK_UPDATER_PUBLIC_KEY` and derives its update endpoint from
 `SCRIMORA_LINK_GITHUB_REPOSITORY` in CI. Release builds set both values in the
 workflow, so installed apps check GitHub Releases for the newest stable release.
+
+## Telemetry Notes
+
+Create a dedicated Umami website for Scrimora Link instead of reusing the
+Scrimora web app property. Add its website ID as
+`SCRIMORA_LINK_UMAMI_WEBSITE_ID`. Release builds send operational telemetry to
+`https://analytics.scrimora.app` when that secret is present.
+
+Telemetry must stay limited to app lifecycle, bridge, pairing, LCU connection,
+and import success/failure events. Do not send summoner names, PUUIDs, match
+IDs, game IDs, participant names, raw origins, lockfile values, or LCU payloads.
